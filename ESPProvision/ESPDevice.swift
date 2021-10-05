@@ -85,7 +85,7 @@ public protocol ESPBLEDelegate {
     /// BLE transport layer.
     var espBleTransport: ESPBleTransport!
     /// SoftAp transport layer.
-    var espSoftApTransport: ESPSoftAPTransport!
+    public var espSoftApTransport: ESPSoftAPTransport!
     /// Peripheral object in case of BLE device.
     var peripheral: CBPeripheral!
     /// Connection status of device.
@@ -132,7 +132,7 @@ public protocol ESPBLEDelegate {
     ///   - transport: Mode of transport.
     ///   - proofOfPossession: Pop of device.
     ///   - softAPPassword: Password in case SoftAP device.
-    init(name: String, security: ESPSecurity, transport: ESPTransport, proofOfPossession:String? = nil, softAPPassword:String? = nil, advertisementData: [String:Any]? = nil) {
+    public init(name: String, security: ESPSecurity, transport: ESPTransport, proofOfPossession:String? = nil, softAPPassword:String? = nil, advertisementData: [String:Any]? = nil) {
         ESPLog.log("Intializing ESPDevice with name:\(name), security:\(security), transport:\(transport), proofOfPossession:\(proofOfPossession ?? "nil") and softAPPassword:\(softAPPassword ?? "nil")")
         self.deviceName = name
         self.security = security
@@ -238,6 +238,16 @@ public protocol ESPBLEDelegate {
         } else {
             self.sendDataToDevice(path: path, data: data, retryOnce: true, completionHandler: completionHandler)
         }
+    }
+    
+    /// Checks if connection is established with the device.
+    ///
+    /// - Returns:`true` if session is established, `false` otherwise.
+    public func isSessionEstablished() -> Bool {
+        if session == nil || !session.isEstablished {
+            return false
+        }
+        return true
     }
     
     private func sendDataToDevice(path:String, data:Data, retryOnce:Bool, completionHandler: @escaping (Data?, ESPSessionError?) -> Swift.Void) {
@@ -410,9 +420,11 @@ public protocol ESPBLEDelegate {
     }
     /// Initialise session with `ESPDevice`.
     ///
-    /// - Parameter completionHandler: The completion handler that is called when session is initalised
-    ///                                Parameter of block include status of session.
-    private func initialiseSession(completionHandler: @escaping (ESPSessionStatus) -> Void) {
+    /// - Parameters:
+    ///    - sessionPath: Path for sending session related data.
+    ///    - completionHandler: The completion handler that is called when session is initalised.
+    ///                         Parameter of block include status of session.
+    open func initialiseSession(sessionPath: String?, completionHandler: @escaping (ESPSessionStatus) -> Void) {
         ESPLog.log("Initialise session")
         
         if let capability = self.capabilities, capability.contains(ESPConstants.noSecCapability) {
@@ -431,31 +443,31 @@ public protocol ESPBLEDelegate {
         case .secure:
             var pop:String!
             if let capability = self.capabilities, capability.contains(ESPConstants.noProofCapability) {
-                initSecureSession(pop: "", completionHandler: completionHandler)
+                initSecureSession(sessionPath: sessionPath, pop: "", completionHandler: completionHandler)
             } else {
                 if self.proofOfPossession == nil {
                     delegate?.getProofOfPossesion(forDevice: self, completionHandler: { popString in
-                        self.initSecureSession(pop: popString, completionHandler: completionHandler)
+                        self.initSecureSession(sessionPath: sessionPath, pop: popString, completionHandler: completionHandler)
                     })
                 } else {
                     pop = self.proofOfPossession ?? ""
-                    self.initSecureSession(pop: pop, completionHandler: completionHandler)
+                    self.initSecureSession(sessionPath: sessionPath, pop: pop, completionHandler: completionHandler)
                 }
             }
         case .unsecure:
             ESPLog.log("Initialise session security 0")
             securityLayer = ESPSecurity0()
-            initSession(completionHandler: completionHandler)
+            initSession(sessionPath: sessionPath, completionHandler: completionHandler)
         }
     }
     
-    private func initSecureSession(pop: String, completionHandler: @escaping (ESPSessionStatus) -> Void) {
+    func initSecureSession(sessionPath: String?, pop: String, completionHandler: @escaping (ESPSessionStatus) -> Void) {
         ESPLog.log("Initialise session security 1")
         securityLayer = ESPSecurity1(proofOfPossession: pop)
-        initSession(completionHandler: completionHandler)
+        initSession(sessionPath: sessionPath, completionHandler: completionHandler)
     }
     
-    private func initSession(completionHandler: @escaping (ESPSessionStatus) -> Void) {
+    func initSession(sessionPath: String?, completionHandler: @escaping (ESPSessionStatus) -> Void) {
         ESPLog.log("Init session")
         switch transport {
         case .ble:
@@ -463,7 +475,7 @@ public protocol ESPBLEDelegate {
         case .softap:
             session = ESPSession(transport: espSoftApTransport, security: securityLayer)
         }
-        session.initialize(response: nil) { error in
+        session.initialize(response: nil, sessionPath: sessionPath) { error in
             guard error == nil else {
                 ESPLog.log("Init session error")
                 ESPLog.log("Error in establishing session \(error.debugDescription)")
@@ -523,14 +535,14 @@ public protocol ESPBLEDelegate {
                 if let prov = result[ESPConstants.provKey] as? NSDictionary, let capabilities = prov[ESPConstants.capabilitiesKey] as? [String] {
                     self.capabilities = capabilities
                     DispatchQueue.main.async {
-                        self.initialiseSession(completionHandler: completionHandler)
+                        self.initialiseSession(sessionPath: nil, completionHandler: completionHandler)
                     }
                 }
             }
         } catch {
             ESPLog.log("Process version info catch")
             DispatchQueue.main.async {
-                self.initialiseSession(completionHandler: completionHandler)
+                self.initialiseSession(sessionPath: nil, completionHandler: completionHandler)
             }
             ESPLog.log(error.localizedDescription)
         }
